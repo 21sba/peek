@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e0f11">
+<title>Peek</title>
+<style>
+  :root {
+    --bg: #0e0f11;
+    --panel: #17181b;
+    --line: #2a2c31;
+    --fg: #f2f2f0;
+    --muted: #8d9097;
+    --accent: #ff5a36;
+    --btn: rgba(20, 21, 24, 0.72);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+  .app {
+    height: 100dvh; display: flex; flex-direction: column; gap: 2px;
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+  }
+  .app.swapped { flex-direction: column-reverse; }
+
+  .pane { position: relative; flex: 1 1 0; min-height: 0; background: var(--panel); overflow: hidden; }
+  .label {
+    position: absolute; top: 10px; left: 12px; z-index: 2;
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg); background: var(--btn); padding: 4px 9px; border-radius: 99px;
+    backdrop-filter: blur(6px);
+  }
+
+  video, #photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+  video.front { transform: scaleX(-1); }
+
+  .empty {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    padding: 24px; color: var(--muted);
+  }
+  .empty p { margin: 0; max-width: 28ch; }
+  [hidden] { display: none !important; }
+
+  .controls {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: center; padding: 14px;
+  }
+  .shutter {
+    width: 68px; height: 68px; border-radius: 50%; border: 4px solid #fff;
+    background: transparent; padding: 0; cursor: pointer; display: grid; place-items: center;
+  }
+  .shutter::after { content: ""; width: 52px; height: 52px; border-radius: 50%; background: #fff; transition: transform .08s; }
+  .shutter:active::after { transform: scale(.86); background: var(--accent); }
+  label.shutter { position: relative; }
+
+  .side { position: absolute; z-index: 3; }
+  .side.right { right: 12px; bottom: 28px; }
+  .side.left { left: 12px; bottom: 28px; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; height: 42px; padding: 0 15px;
+    border: 1px solid var(--line); border-radius: 99px; background: var(--btn); color: var(--fg);
+    font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; backdrop-filter: blur(6px);
+  }
+  .chip:active { background: #000; }
+  .chip svg { width: 18px; height: 18px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .swap {
+    position: absolute; z-index: 5; right: max(12px, env(safe-area-inset-right, 0px)); top: 50%;
+    transform: translateY(-50%);
+    width: 46px; height: 46px; padding: 0; justify-content: center;
+    background: var(--fg); color: var(--bg); border-color: var(--fg);
+  }
+  .swap:active { background: var(--accent); border-color: var(--accent); }
+
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 4; }
+  .flash.go { animation: flash .25s ease-out; }
+  @keyframes flash { from { opacity: .85 } to { opacity: 0 } }
+  @media (prefers-reduced-motion: reduce) { .flash.go { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <section class="pane" id="cameraPane" aria-label="Fotocamera">
+    <span class="label">Fotocamera</span>
+    <video id="video" autoplay playsinline muted></video>
+    <div class="empty" id="camMsg" hidden><p id="camMsgText"></p></div>
+    <div class="flash" id="flash"></div>
+
+    <div class="controls">
+      <button class="shutter" id="shutter" aria-label="Scatta foto"></button>
+      <label class="shutter" id="shutterFallback" aria-label="Scatta foto" hidden>
+        <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+      </label>
+    </div>
+    <div class="side right">
+      <button class="chip" id="flip" aria-label="Cambia fotocamera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+        Gira
+      </button>
+    </div>
+  </section>
+
+  <button class="chip swap" id="swap" aria-label="Scambia le due viste" title="Scambia le due viste">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M3 8l4-4 4 4"/><path d="M17 20V4"/><path d="M13 16l4 4 4-4"/></svg>
+  </button>
+
+  <section class="pane" id="photoPane" aria-label="Ultima foto">
+    <span class="label">Ultima foto</span>
+    <img id="photo" alt="Ultima foto scattata" hidden>
+    <div class="empty" id="photoEmpty"><p>Nessuna foto ancora. Premi il pulsante per scattare.</p></div>
+    <div class="side left" id="saveWrap" hidden>
+      <a class="chip" id="save" download="foto.jpg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+        Salva
+      </a>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  var video = document.getElementById('video');
+  var photo = document.getElementById('photo');
+  var photoEmpty = document.getElementById('photoEmpty');
+  var shutter = document.getElementById('shutter');
+  var shutterFallback = document.getElementById('shutterFallback');
+  var fileInput = document.getElementById('fileInput');
+  var flip = document.getElementById('flip');
+  var swap = document.getElementById('swap');
+  var app = document.getElementById('app');
+  var flash = document.getElementById('flash');
+  var camMsg = document.getElementById('camMsg');
+  var camMsgText = document.getElementById('camMsgText');
+  var saveWrap = document.getElementById('saveWrap');
+  var save = document.getElementById('save');
+
+  var stream = null;
+  var facing = 'environment';
+  var lastUrl = null;
+
+  function showPhoto(url) {
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = url;
+    photo.src = url;
+    photo.hidden = false;
+    photoEmpty.hidden = true;
+    save.href = url;
+    save.setAttribute('download', 'foto-' + Date.now() + '.jpg');
+    saveWrap.hidden = false;
+  }
+
+  function useFallback(msg) {
+    camMsgText.textContent = msg;
+    camMsg.hidden = false;
+    video.hidden = true;
+    shutter.hidden = true;
+    flip.hidden = true;
+    shutterFallback.hidden = false;
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      useFallback('Il feed live non è disponibile qui. Serve una pagina servita in HTTPS. Usa il pulsante per scattare con la fotocamera del telefono.');
+      return;
+    }
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      video.classList.toggle('front', facing === 'user');
+      camMsg.hidden = true;
+      video.hidden = false;
+      shutter.hidden = false;
+      flip.hidden = false;
+      shutterFallback.hidden = true;
+      await video.play().catch(function () {});
+    } catch (err) {
+      var denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+      useFallback(denied
+        ? 'Accesso alla fotocamera negato. Consentilo nelle impostazioni del browser, oppure scatta con il pulsante qui sotto.'
+        : 'Impossibile avviare la fotocamera. Puoi comunque scattare con il pulsante qui sotto.');
+    }
+  }
+
+  shutter.addEventListener('click', function () {
+    if (!video.videoWidth) return;
+    var c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    c.toBlob(function (blob) {
+      if (blob) showPhoto(URL.createObjectURL(blob));
+    }, 'image/jpeg', 0.92);
+    flash.classList.remove('go');
+    void flash.offsetWidth;
+    flash.classList.add('go');
+  });
+
+  fileInput.addEventListener('change', function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (f) showPhoto(URL.createObjectURL(f));
+    fileInput.value = '';
+  });
+
+  flip.addEventListener('click', function () {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    startCamera();
+  });
+
+  swap.addEventListener('click', function () {
+    app.classList.toggle('swapped');
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && !video.hidden) startCamera();
+  });
+
+  startCamera();
+})();
+</script>
+</body>
+</html>
